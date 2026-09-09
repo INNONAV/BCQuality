@@ -27,3 +27,6 @@ node_modules/
 # Runtime artifact: the knowledge index is rebuilt over each consumer's
 # pruned clone by Entry's preparation step; it is never committed.
 /knowledge-index.json
+
+# Runtime artifact: local evaluation runs prepared by tools/Test-ReviewFixtures.ps1
+/.evaluation-run/
