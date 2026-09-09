@@ -34,38 +34,96 @@ und beantworten schon, ob sich das Weiterlesen lohnt.
 
 `[gemessen: 2026-09-09]` PowerShell 7.6.5 reicht.
 
-### Schritte
+### Ein Befehl statt vier
 
 ```powershell
-# 1. Fork aktuell halten
-cd C:\Users\<du>\Documents\Repo\GitHub\BCQuality
-git remote add upstream https://github.com/microsoft/BCQuality.git   # einmalig
-git fetch upstream
-git log --oneline HEAD..upstream/main | Measure-Object -Line          # wie weit hinten?
-
-# 2. Knowledge-Index bauen
-pwsh ./tools/Build-KnowledgeIndex.ps1
-# Erwartung: "BCQuality index: ~300 article(s)"   Dauer ~10-15 s
-
-# 3. Korpus-Selbsttest (credential-frei, kein Modellaufruf)
-pwsh ./tools/Test-ReviewFixtures.ps1 -Root .
-# Erwartung: "Review fixture validation PASSED: 34 cases cover 17 leaf domains."   ~2 s
+pwsh ./custom/playbooks/scripts/Check-Phase0.ps1
 ```
 
-**Gate 0:** Beide Läufe grün. Sonst hier stoppen — ohne Index arbeiten die Skills im teuren
-Fallback-Modus.
+Das Skript prüft alles vier auf einmal — Voraussetzungen, Upstream-Abstand, Index-Build,
+Fixture-Lauf — und endet mit **GATE 0 BESTANDEN** oder einer Liste dessen, was fehlt. Es
+ändert nichts am Repo außer der ohnehin ignorierten `knowledge-index.json` und legt den
+`upstream`-Remote an, falls er fehlt. Ohne Netz: `-SkipFetch`.
+
+Referenzlauf `[gemessen: 2026-09-09]`, Windows 11, PowerShell 7.6.5:
+
+```
+[ OK ] PowerShell 7+          7.6.5
+[ OK ] git                    git version 2.55.0.windows.3
+[ OK ] Fork aktuell           0 hinterher, 1 eigene Commits
+[ OK ] Index gebaut           300 Artikel in 3.9s
+[ OK ] Fixtures               PASSED: 34 cases cover 17 leaf domains (1.9s)
+GATE 0 BESTANDEN
+```
+
+⚠️ Die Laufzeiten schwanken erheblich — derselbe Index-Build dauerte in zwei Läufen 3,9 s und
+22,6 s (Cache-Zustand). Das ist unkritisch, bestätigt aber die Regel aus
+[Playbook 1](01-bcquality-verstehen.md): **Index einmal pro Session bauen, nicht pro Aufruf** —
+und widerlegt die Behauptung der Upstream-Doku, der Build laufe „well under a second".
+
+### Was das Skript einzeln tut
+
+| Prüfung | Befehl dahinter | Erwartung |
+|---|---|---|
+| Voraussetzungen | `pwsh --version`, `git --version` | PowerShell **7+** (5.1 reicht nicht) |
+| Upstream-Abstand | `git fetch upstream` + `rev-list --count` | Hinterherhinken ist ein Hinweis, kein Fehler |
+| Index | `tools/Build-KnowledgeIndex.ps1` | ~300 Artikel |
+| Fixtures | `tools/Test-ReviewFixtures.ps1 -Root .` | PASSED, 34 Cases, 17 Domänen |
+
+**Gate 0:** Exit-Code 0. Sonst hier stoppen — ohne Index arbeiten die Skills im teuren
+Fallback-Modus (Dateien lesen statt Index).
+
+### Fork-Anschluss
+
+`[erledigt: 2026-09-09]` Der `upstream`-Remote auf `microsoft/BCQuality` ist eingerichtet, der
+Fork war beim Check **0 Commits hinterher**. Sync später mit:
+
+```powershell
+git fetch upstream && git merge upstream/main
+```
+
+Der `/custom/`-Layer kann dabei nicht kollidieren — Upstream befüllt ihn nie. Nach jedem Sync
+`Check-Phase0.ps1` erneut laufen lassen: Breaking Changes sind angekündigt, und der
+Fixture-Lauf ist der billigste Weg, sie zu bemerken.
 
 ### BCQuality als Claude-Code-Plugin einbinden
 
 Das Repo bringt `plugin.json` und `.claude-plugin/marketplace.json` (Version `0.2.0`) bereits
 mit. Registriert wird **ein** Skill: `al-code-review`.
 
-⚠️ **Namenskollision beachten.** Der Skill hieß bis Version `0.2.0` `bcquality-al-review`.
-Alte Allowlists und explizite Aufrufe müssen angepasst werden. Der Name ist bewusst *nicht*
-`al-review` (das gehört BC-ALAgents) — aber prüfe, ob er mit einem unserer `innonav-*`-Skills
-kollidiert, denn manche Hosts laden alle Plugin-Skills in **eine** gemeinsame Namensliste.
+**Immer die Fork-URL verwenden** (`INNONAV/BCQuality`), nicht `microsoft/BCQuality` — sonst
+fehlt unser `/custom/`-Layer.
 
-⚠️ **Fork-URL verwenden**, nicht `microsoft/BCQuality` — sonst fehlt unser `/custom/`-Layer.
+#### Namenskollision — geprüft, keine
+
+`[gemessen: 2026-09-09]` Abgleich von `al-code-review` gegen alle 47 Skill-Namen und
+19 Command-Namen der `innonav-*`-Plugins: **keine Kollision**. Unsere heißen `review`
+(Command), `pr-review` und `analyze`. Der Name ist auch bewusst nicht `al-review` — den
+belegt BC-ALAgents.
+
+Relevant, weil manche Hosts alle Plugin-Skills in **eine** gemeinsame Namensliste laden.
+
+#### Routing-Überschneidung — die gibt es sehr wohl
+
+Kein Namenskonflikt heißt nicht, dass das Richtige triggert. Die Beschreibungen überlappen
+deutlich:
+
+| Skill | deckt ab |
+|---|---|
+| BCQuality `al-code-review` | „AL pull request, working-tree diff, branch, or individual AL file" |
+| unser `/review` | „across files or a branch" |
+| unser `/analyze` | „a single file" |
+| unser `pr-review` | remote PR |
+
+Ein „review this AL file" kann damit bei beiden landen.
+
+**Regel für den Pilot: BCQuality immer explizit aufrufen**, nie implizit triggern lassen —
+sonst weißt du hinterher nicht, welcher Stack das Ergebnis erzeugt hat, und der Vergleich in
+Phase 1 ist wertlos. Das deckt sich mit der Community-Erfahrung, dass das Plugin zuverlässiger
+arbeitet, wenn man ausdrücklich um einen Review bittet.
+
+⚠️ Der Skill hieß bis Version `0.2.0` `bcquality-al-review`. Alte Allowlists und explizite
+Aufrufe müssen angepasst werden.
 
 ---
 
@@ -386,8 +444,10 @@ Wir arbeiten auf `INNONAV/BCQuality` (Fork von `microsoft/BCQuality`).
 ## Zusammengefasst als Checkliste
 
 ```
-[ ] Phase 0  pwsh vorhanden, Index gebaut, Fixture-Lauf grün
-[ ] Phase 0  Fork-URL im Plugin-Install, Skill-Namenskollision geprüft
+[x] Phase 0  Check-Phase0.ps1 gruen (pwsh, Fork, Index, Fixtures)   [2026-09-09]
+[x] Phase 0  upstream-Remote eingerichtet, Fork 0 Commits hinterher [2026-09-09]
+[x] Phase 0  Skill-Namenskollision geprueft — keine                 [2026-09-09]
+[ ] Phase 0  BCQuality-Plugin mit FORK-URL installiert (interaktiv)
 [ ] Phase 1  Repo mit dichter Domäne gewählt (performance/ui/style)
 [ ] Phase 1  Läufe A/B/C über denselben Diff
 [ ] Phase 1  Findings in 4 Kategorien einsortiert

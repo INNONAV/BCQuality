@@ -19,6 +19,16 @@ außerdem markieren; `custom/` umgeht das.
 | 6 | [Praxis aus der Community](06-praxis-community.md) | alle, die agentisch entwickeln |
 | — | [Quellen-Index](quellen/QUELLEN-INDEX.md) | Nachprüfbarkeit |
 
+## Sofort loslegen
+
+```powershell
+pwsh ./custom/playbooks/scripts/Check-Phase0.ps1
+```
+
+Prüft in einem Durchlauf, ob dein Klon einsatzbereit ist — Voraussetzungen, Upstream-Abstand,
+Knowledge-Index, Review-Fixtures — und endet mit `GATE 0 BESTANDEN` oder einer Liste dessen,
+was fehlt. Ändert nichts am Repo. Ohne Netz: `-SkipFetch`.
+
 ## Das Ergebnis
 
 BCQuality ist **kein Ersatz** für unser Plugin — es ist kleiner, hat keinen Compiler-Beleg und
