@@ -125,6 +125,13 @@ arbeitet, wenn man ausdrücklich um einen Review bittet.
 ⚠️ Der Skill hieß bis Version `0.2.0` `bcquality-al-review`. Alte Allowlists und explizite
 Aufrufe müssen angepasst werden.
 
+#### Status
+
+`[erledigt: 2026-09-09]` Installiert; der Skill meldet sich als **`bcquality:al-code-review`**.
+Genau dieser vollqualifizierte Name ist im Pilot zu verwenden — er erzwingt den expliziten
+Aufruf und schließt die oben beschriebene Routing-Überschneidung mit `/review` und `/analyze`
+aus.
+
 ---
 
 ## Phase 1 — Erstkontakt auf echtem Code (1 Tag)
@@ -447,7 +454,8 @@ Wir arbeiten auf `INNONAV/BCQuality` (Fork von `microsoft/BCQuality`).
 [x] Phase 0  Check-Phase0.ps1 gruen (pwsh, Fork, Index, Fixtures)   [2026-09-09]
 [x] Phase 0  upstream-Remote eingerichtet, Fork 0 Commits hinterher [2026-09-09]
 [x] Phase 0  Skill-Namenskollision geprueft — keine                 [2026-09-09]
-[ ] Phase 0  BCQuality-Plugin mit FORK-URL installiert (interaktiv)
+[x] Phase 0  BCQuality-Plugin installiert, Skill bcquality:al-code-review da [2026-09-09]
+             ==> GATE 0 VOLLSTAENDIG BESTANDEN — Phase 1 kann starten
 [ ] Phase 1  Repo mit dichter Domäne gewählt (performance/ui/style)
 [ ] Phase 1  Läufe A/B/C über denselben Diff
 [ ] Phase 1  Findings in 4 Kategorien einsortiert
