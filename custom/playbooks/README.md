@@ -7,6 +7,9 @@ Diese Playbooks liegen bewusst unter `custom/`, weil das der einzige Ordner ist,
 erzeugen. Der Upstream-Workflow `flag-new-top-level.yml` würde einen neuen Ordner im Repo-Root
 außerdem markieren; `custom/` umgeht das.
 
+> **Wiedereinstieg:** [PROGRESS.md](PROGRESS.md) — wo wir stehen, was als Nächstes ansteht,
+> was offen ist. Zuerst dort nachsehen, nicht hier.
+
 ## Reihenfolge
 
 | # | Playbook | Für wen |
