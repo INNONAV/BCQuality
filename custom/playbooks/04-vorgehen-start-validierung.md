@@ -73,6 +73,19 @@ und widerlegt die Behauptung der Upstream-Doku, der Build laufe „well under a 
 **Gate 0:** Exit-Code 0. Sonst hier stoppen — ohne Index arbeiten die Skills im teuren
 Fallback-Modus (Dateien lesen statt Index).
 
+⚠️ **Das Skript prüft den falschen Index** `[gemessen: 2026-09-10]`. Es baut und zählt
+`knowledge-index.json` im **Repo-Checkout**. Der Skill läuft aber aus der **installierten
+Plugin-Kopie**, und dort wird der Index nicht ausgeliefert — bei uns fehlte er nach der
+Installation komplett, während Gate 0 grün meldete. Deshalb zusätzlich:
+
+```powershell
+pwsh "$env:USERPROFILE/.claude/plugins/cache/bcquality/bcquality/0.2.0/tools/Build-KnowledgeIndex.ps1"
+```
+
+Erwartung: `300 article(s)`. Ohne diesen Schritt läuft der Review still im Fallback-Modus —
+**ohne Fehlermeldung**, denn Entry wertet einen fehlgeschlagenen Index-Build ausdrücklich
+nicht als fehlgeschlagenen Review. Nach jedem Plugin-Update erneut nötig.
+
 ### Fork-Anschluss
 
 `[erledigt: 2026-09-09]` Der `upstream`-Remote auf `microsoft/BCQuality` ist eingerichtet, der
@@ -146,6 +159,15 @@ Nimm **ein** Kunden-Repo mit diesen Eigenschaften:
   Artikel). **Nicht** mit `query` (2 Artikel), `appsource` (4) oder `testing` (6) starten,
   sonst misst man die Korpuslücke statt die Methode.
 
+### Vorher: `bc-version` bestimmen und setzen
+
+`[gelernt: 2026-09-10]` Die Zielversion aus dem `app.json` **des geprüften Codestands** lesen,
+nicht aus dem Arbeitsbaum — die beiden können auseinanderlaufen (bei uns: 28.0 im Baseline-Stand,
+23.0 am HEAD nach einem Kompatibilitäts-Downgrade). Ohne `bc-version` im Task-Context sind alle
+Artikel mit nicht-universeller Version nur *conditionally applicable*: sie dürfen in die
+Worklist, aber jedes Finding daraus ist auf `confidence: medium` gedeckelt. Das verzerrt die
+Auswertung nach unten und lässt Artikel zu, die für die Zielversion gar nicht mehr gelten.
+
 ### Durchführung
 
 Drei Läufe über **denselben** Diff, Ergebnisse getrennt ablegen:
@@ -207,6 +229,20 @@ $r.findings | ForEach-Object {
 **Jede Zeile mit `Exists = False` ist eine erfundene Quelle** und ein K.-o.-Kriterium für den
 Beleg-Anspruch. Der Reference-Integrity-Gate in [`skills/do.md`](../../skills/do.md) soll das
 verhindern — hier prüfen wir, ob er in der Praxis hält.
+
+`[2026-09-10]` Dafür gibt es inzwischen ein fertiges Skript, das über diesen Schnipsel
+hinausgeht: **`Check-Findings.ps1`** (liegt bei den Vergleichsergebnissen der HF-App). Es prüft
+zusätzlich, ob `id == references[0].path` gilt, trennt **knowledge-backed** von **agent findings**
+und prüft gegen den Index, ob der zitierte Artikel für die Zielversion überhaupt gilt.
+
+**Ergebnis des ersten Laufs: 50 von 50 Zitaten echt, keine erfundene Quelle.** Der
+Beleg-Anspruch hält in der Praxis.
+
+⚠️ **Agent findings getrennt zählen.** BCQuality emittiert auch Findings **ohne** Artikel
+dahinter (`references: []`, `id` mit Präfix `agent:`). Nur die knowledge-backed Findings messen,
+was die Wissensbasis beiträgt — ein Agent-Finding kann unser Stack ohne BCQuality auch. In
+unserem Lauf war die **Hälfte der verifizierten Treffer** ein Agent-Finding. Wer das nicht
+trennt, schreibt dem Korpus zu, was das Modell geleistet hat.
 
 ---
 

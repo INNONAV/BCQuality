@@ -1,12 +1,55 @@
 # Playbook 5 — Was wir für unser eigenes Plugin übernehmen sollten
 
-**Stand:** 2026-09-09 · **Zielgruppe:** Maintainer von `INNONAV/ClaudeCodePlugin`
+**Stand:** 2026-09-14 · **Zielgruppe:** Maintainer von `INNONAV/ClaudeCodePlugin`
 
 Diese Liste gilt **auch dann**, wenn wir BCQuality am Ende nicht einsetzen. Es sind
 Mechaniken, keine Inhalte — und sie beheben Lücken, die in
 [Playbook 3, Abschnitt 4](03-vergleich-innonav.md) belegt sind.
 
 Sortiert nach Nutzen ÷ Aufwand.
+
+---
+
+## Rang 0 — Den `/custom/knowledge/`-Layer aus dem INNONAV-Ruleset erzeugen
+
+`[neu aus Lauf B, 2026-09-10]` — der einzige Kandidat, der aus einer **Messung** stammt statt
+aus einer Analyse, und der billigste von allen.
+
+### Der Befund
+
+Von 50 Findings in Lauf B waren 5 Fehlalarme. **Alle fünf hatten dieselbe Ursache:** Sie
+liefen gegen Regeln, die INNONAV im zentralen Ruleset
+([`INNONAV/ALRulesets`](https://github.com/INNONAV/ALRulesets) → `InnoNavBase.ruleset.json`)
+bewusst abgeschaltet hat — jeweils mit Begründung im Feld `justification`:
+
+| BCQuality-Finding | abgeschaltete Hausregel |
+|---|---|
+| `no-begin-end-around-single-statement` (193 Vorkommen!) | **AA0005** |
+| `variable-declaration-order-by-type` | **AA0021** |
+| `temporary-variable-temp-prefix` | **AA0073** |
+| `this-keyword-in-codeunits` | **AA0248** / **CM0040** |
+| `label-comment-explains-placeholders` | **AA0470** |
+
+Insgesamt stehen dort **54 Regeln auf `action: "None"`**. Die Findings sind technisch korrekt —
+der Code enthält die Muster wirklich. Sie sind falsch **für uns**, und ein Finding mit
+193 Vorkommen drückt sich nicht nebenbei weg.
+
+### Warum das ein Mechanik-Kandidat ist
+
+READ definiert eine Layer-Präzedenz: `/custom/` schlägt `/community/` schlägt `/microsoft/`.
+Genau dafür ist der Custom-Layer da — **und unserer ist leer.** Wir haben BCQuality mit einer
+Funktion installiert, die wir nicht benutzt haben, und dann gemessen, wie sehr uns ihr Fehlen
+stört.
+
+### Umsetzung
+
+Die 54 Ausnahmen liegen maschinenlesbar mit Begründung vor. Pro Regel ein Artikel in
+`/custom/knowledge/<domain>/` mit der Hausentscheidung als `## Best Practice` — das ist die
+Form, die READs Konfliktauflösung erwartet, und sie gewinnt gegen `/microsoft/`.
+
+**Der Nutzen hängt nicht an BCQuality.** Eine bewusst getroffene Team-Entscheidung, die heute
+nur im Ruleset kodiert ist, wird damit für *jeden* Agenten lesbar — auch für unseren eigenen
+Review-Stack, der die 54 Ausnahmen bislang ebenfalls nicht kennt.
 
 ---
 
@@ -115,6 +158,11 @@ Realitätsanker dafür sind die 57 % / 49 % ihres eigenen Review-Agenten
 
 ## Rang 3 — Reference-Integrity-Gate
 
+✅ `[gemessen: 2026-09-10]` **Das Gate hält in der Praxis.** Über 50 Findings aus 17 Leaves:
+50/50 zitierte Pfade existieren, 50/50 `id`-Werte stimmen mit `references[0].path`
+überein, keine einzige erfundene Quelle. Das ist der stabilste Einzelbefund der ganzen
+Evaluierung — und der Grund, diesen Rang nicht weiter nach hinten zu schieben.
+
 **Problem:** Unsere Findings tragen eine Cop-Rule-ID, wo eine existiert, und sonst nichts.
 Kein `helpUri` (obwohl `list_rules --verbose` ihn liefert), kein Zitat der Regelstelle, keine
 stabile Finding-ID. Wer ein Finding bestreitet, bekommt keine Belegkette.
@@ -137,6 +185,13 @@ und in der Severity gedeckelt.
 ---
 
 ## Rang 4 — Agent-Findings deckeln
+
+⚠️ `[gemessen: 2026-09-10]` **Wichtiger als gedacht.** In Lauf B waren 5 der 50 Findings
+Agent-Findings — aber **3 der 6 am Code verifizierten Treffer**. Sie tragen also
+überproportional zum Ergebnis bei, obwohl kein Artikel dahintersteht. Zwei Konsequenzen:
+die Deckelung auf `minor` ist richtig und muss bleiben; und jede Messung, die den Nutzen
+einer Wissensbasis belegen soll, braucht eine **Kontrollgruppe ohne Korpus** — sonst
+schreibt man dem Korpus zu, was das Modell geleistet hat.
 
 **Problem:** Bei uns kann ein reines LLM-Urteil ohne jeden Beleg als *Critical* erscheinen.
 
@@ -261,6 +316,7 @@ Korpus — dann docken wir BCQuality als Wissensschicht an und pflegen nur `/cus
 
 ```
 Sofort, unabhängig von BCQuality:
+  0. /custom/knowledge aus dem Ruleset      (klein, gemessener Nutzen)
   1. Findings-Report als JSON              (klein)
   2. pr-review: ALCops + Adversarial       (klein, Sicherheitslücke)
   3. Skeptiker vom Autor-Agent trennen     (klein)

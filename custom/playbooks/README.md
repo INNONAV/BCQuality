@@ -39,10 +39,27 @@ keinen Prozessanschluss. Es hat aber drei Mechaniken, die uns fehlen und wehtun:
 **Beleg-Zwang für jedes Finding**, **Regressionstests der Review-Qualität** und
 **Wissen als Daten statt als Prompt-Prosa**.
 
-Ob es inhaltlich etwas bringt, ist **offen**. Über zwölf Videos, ein Paper und fünf
-MVP-Quellen hinweg findet sich **keine einzige Messung und kein Erfahrungsbericht** zu
-BCQuality — es wird verwiesen, erwogen und angekündigt, nicht gezeigt. Deshalb messen wir
-selbst, bevor wir einführen → [Playbook 4](04-vorgehen-start-validierung.md).
+Ob es inhaltlich etwas bringt, war **offen** — über zwölf Videos, ein Paper und fünf
+MVP-Quellen hinweg findet sich keine einzige Messung und kein Erfahrungsbericht zu
+BCQuality. Es wird verwiesen, erwogen und angekündigt, nicht gezeigt. Deshalb haben wir
+selbst gemessen → [Playbook 4](04-vorgehen-start-validierung.md).
+
+### Erste eigene Messung `[2026-09-10]`
+
+Lauf über 8.703 Zeilen Kundencode (`INNO Header Footer Text`), 17 Leaves, 181 von 300
+Artikeln evaluiert → **50 Findings**. Gemessen gegen ein vorhandenes INNONAV-Vollreview
+derselben App im Maximalausbau.
+
+- **Der Beleg-Zwang hält:** 50 von 50 Zitaten echt, keine erfundene Quelle.
+- **Gate 1 bestanden:** 6 verifizierte Befunde „neu & richtig" gegen 5 Fehlalarme.
+- **Alle 5 Fehlalarme** liefen gegen Regeln, die INNONAV bewusst abgeschaltet hat — der
+  `/custom/knowledge/`-Layer, der genau das verhindern soll, war leer
+  ([Playbook 5, Rang 0](05-uebernahmekandidaten.md)).
+- **Die Hälfte der verifizierten Treffer** waren Agent-Findings **ohne** Artikel dahinter —
+  gemessen wurde also nicht nur die Wissensbasis, sondern auch das Modell.
+
+Damit ist erstmals eine Zahl da, wo vorher nur Ankündigungen standen. Der Stand aller vier
+Läufe: [PROGRESS.md](PROGRESS.md).
 
 Drei Befunde prägen die Empfehlung:
 
@@ -68,4 +85,4 @@ Diese Playbooks enthalten **nur Belegtes**. Jede Aussage ist entweder
 
 Unsicheres ist mit `[unsicher]` markiert. Lücken sind benannt, nicht überdeckt.
 
-**Stand:** 2026-09-09 · **Fork-Basis:** `8584217` (upstream `microsoft/BCQuality`)
+**Stand:** 2026-09-14 · **Fork-Basis:** `8584217` (upstream `microsoft/BCQuality`)
