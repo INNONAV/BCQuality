@@ -18,7 +18,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 try:
@@ -45,9 +45,10 @@ ENTRY_SKILL_REQUIRED_KEYS = {"kind", "id", "version", "title"}
 HOST_SKILL_REQUIRED_KEYS = {"name", "description"}
 
 STANDARD_INPUTS = {
-    "pr-diff", "object-list", "file-path", "repository", "telemetry-query",
+    "pr-diff", "object-list", "file-path", "folder-path", "repository", "telemetry-query",
+    "development-plan", "knowledge-query",
 }
-ALLOWED_OUTPUTS = {"findings-report"}
+ALLOWED_OUTPUTS = {"findings-report", "development-guidance-report", "knowledge-response"}
 VALID_SAMPLE_KINDS = {"good", "bad"}
 
 ACTION_SKILL_SECTIONS = ["Source", "Relevance", "Worklist", "Action", "Output"]
@@ -145,6 +146,28 @@ def parse_markdown(text: str) -> Parsed:
 
 def is_non_empty_list_of_str(value: Any) -> bool:
     return isinstance(value, list) and len(value) > 0 and all(isinstance(v, str) and v for v in value)
+
+
+def normalize_repo_md_path(value: Any) -> tuple[str | None, str | None]:
+    """Validate a canonical repo-relative Markdown path."""
+    if not isinstance(value, str) or not value:
+        return None, "must be a non-empty string"
+    if "\\" in value:
+        return None, "must use forward slashes"
+
+    normalized = value
+    segments = value.split("/")
+    if (
+        not normalized
+        or normalized.startswith("/")
+        or re.match(r"^[A-Za-z]:", normalized)
+        or any(segment in ("", ".", "..") for segment in segments)
+        or PurePosixPath(normalized).is_absolute()
+    ):
+        return None, "must be a repository-relative path that does not escape the repository"
+    if not normalized.endswith(".md"):
+        return None, "must end in '.md'"
+    return normalized, None
 
 
 def expand_bc_version(value: Any) -> tuple[list[int] | str | None, str | None]:
@@ -340,9 +363,11 @@ def validate_action_skill(path: Path, parsed: Parsed, report: Report) -> None:
         if not is_non_empty_list_of_str(out):
             report.error(path, "R18", "outputs must be a non-empty list of strings", 1)
         else:
+            if len(out) != 1:
+                report.error(path, "R18", "outputs must contain exactly one output kind", 1)
             bad = [x for x in out if x not in ALLOWED_OUTPUTS]
             if bad:
-                report.error(path, "R18", f"outputs contains non-allowed values {bad}; currently only {sorted(ALLOWED_OUTPUTS)} is defined", 1)
+                report.error(path, "R18", f"outputs contains non-allowed values {bad}; allowed values are {sorted(ALLOWED_OUTPUTS)}", 1)
 
     # R19 optional filter dimensions, if present
     if "bc-version" in fm:
@@ -378,9 +403,12 @@ def validate_action_skill(path: Path, parsed: Parsed, report: Report) -> None:
         if not is_non_empty_list_of_str(ss):
             report.error(path, "R20", "sub-skills must be a non-empty list of repo-relative paths", 1)
         else:
-            bad = [x for x in ss if not x.endswith(".md")]
+            bad = [f"{x}: {err}" for x in ss if (err := normalize_repo_md_path(x)[1])]
             if bad:
-                report.error(path, "R20", f"sub-skills entries must end in '.md': {bad}", 1)
+                report.error(path, "R20", f"invalid sub-skills paths: {bad}", 1)
+            duplicates = sorted({x for x in ss if ss.count(x) > 1})
+            if duplicates:
+                report.error(path, "R20", f"sub-skills contains duplicate paths: {duplicates}", 1)
 
     # R21 five required sections, in order, each exactly once
     heads = [h for h, _ in headings_in_order(parsed.body)]
@@ -565,7 +593,13 @@ class SkillRecord:
     skill_id: str | None
 
 
-def validate_sub_skills_registry(path: Path, fm: dict[str, Any], root: Path, report: Report) -> None:
+def validate_sub_skills_registry(
+    path: Path,
+    fm: dict[str, Any],
+    root: Path,
+    action_skills_by_path: dict[str, dict[str, Any]],
+    report: Report,
+) -> None:
     """R26: a super-skill's declared `sub-skills` must exactly match the
     `al-*-review.md` leaf files present in the same directory (set equality,
     ordering-agnostic). This keeps the registered leaf list the single source
@@ -578,7 +612,11 @@ def validate_sub_skills_registry(path: Path, fm: dict[str, Any], root: Path, rep
     if not is_non_empty_list_of_str(ss):
         return
 
-    declared = {s.lstrip("./") for s in ss}
+    declared = {
+        normalized
+        for s in ss
+        if (normalized := normalize_repo_md_path(s)[0]) is not None
+    }
 
     # Sibling leaves on disk, excluding the super-skill file itself.
     leaves = {
@@ -597,6 +635,17 @@ def validate_sub_skills_registry(path: Path, fm: dict[str, Any], root: Path, rep
                 path, "R26",
                 f"sub-skills entry is not a sibling 'al-*-review.md' leaf: {entry}", 1,
             )
+
+    for entry in ss:
+        leaf = action_skills_by_path.get(entry)
+        if leaf is None:
+            if (root / entry).exists():
+                report.error(path, "R26", f"sub-skills entry is not an action skill: {entry}", 1)
+            continue
+        if is_non_empty_list_of_str(leaf.get("sub-skills")):
+            report.error(path, "R26", f"nested super-skill is not permitted in v1 composition: {entry}", 1)
+        if leaf.get("outputs") != ["findings-report"]:
+            report.error(path, "R26", f"sub-skill must produce findings-report: {entry}", 1)
 
     # Sibling leaves on disk that were never registered ('forgot to wire it up').
     for leaf in sorted(leaves - declared):
@@ -657,12 +706,16 @@ def run(root: Path) -> Report:
             if domain_dir.is_dir():
                 validate_samples_in_domain(domain_dir, root, report)
 
-    # Third pass: R24 unique ids within kind
+    # Third pass: R24 unique ids within kind. Layered action-skill overrides
+    # may share an id, but two definitions in one layer are ambiguous.
     by_kind: dict[str, dict[str, list[Path]]] = {}
     for rec in skill_records:
         if rec.skill_id is None:
             continue
-        by_kind.setdefault(rec.kind, {}).setdefault(rec.skill_id, []).append(rec.path)
+        scope = rec.kind
+        if rec.kind == "action-skill":
+            scope = f"{rec.kind}:{rec.path.relative_to(root).parts[0]}"
+        by_kind.setdefault(scope, {}).setdefault(rec.skill_id, []).append(rec.path)
     for kind, by_id in by_kind.items():
         for sid, paths in by_id.items():
             if len(paths) > 1:
@@ -670,9 +723,13 @@ def run(root: Path) -> Report:
                     others = [q.relative_to(root).as_posix() for q in paths if q != p]
                     report.error(p, "R24", f"skill id '{sid}' ({kind}) is not unique; also defined in: {others}")
 
-    # Fourth pass: R26 sub-skills registry matches leaf files on disk
+    # Fourth pass: R26 sub-skills registry matches compatible leaf files on disk
+    action_skills_by_path = {
+        path.relative_to(root).as_posix(): fm
+        for path, fm in action_skill_fms
+    }
     for path, fm in action_skill_fms:
-        validate_sub_skills_registry(path, fm, root, report)
+        validate_sub_skills_registry(path, fm, root, action_skills_by_path, report)
 
     return report
 
@@ -686,6 +743,8 @@ def main(argv: list[str] | None = None) -> int:
     report = run(root)
 
     gha = os.environ.get("GITHUB_ACTIONS") == "true"
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     for d in report.diagnostics:
         line = d.format_gha(root) if gha else d.format_plain(root)
         print(line)

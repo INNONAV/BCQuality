@@ -4,7 +4,7 @@ id: al-security-review
 version: 1
 title: AL security review
 description: Reviews AL source changes against security guidance from BCQuality.
-inputs: [pr-diff, file-path]
+inputs: [pr-diff, file-path, folder-path]
 outputs: [findings-report]
 bc-version: [all]
 technologies: [al]
@@ -16,11 +16,11 @@ application-area: [all]
 
 Reviews AL source changes against the `security` knowledge domain in BCQuality and emits a findings report. This is a leaf action skill: it invokes no sub-skills. It is one of the skills composed by `al-code-review`.
 
-An orchestrator invokes this skill with either a `pr-diff` (the standard PR-review entry point) or a `file-path` (single-file review). The skill produces a single JSON document conforming to the DO output contract.
+An orchestrator invokes this skill with a `pr-diff`, `file-path`, or `folder-path`. The skill produces a single JSON document conforming to the DO output contract.
 
 ## Source
 
-Read the BCQuality knowledge index once — the `knowledge-index.json` BCQuality builds at the root of the knowledge checkout (Entry's preparation step regenerates it over the live, already-filtered clone — see `skills/entry.md`). It lists every article that survived layer and allow/deny filtering and carries, per article, its `path`, `layer`, `domain`, frontmatter dimensions, `keywords`, `title`, and a one-line `description` hint — exactly the fields Relevance and Worklist consume. Take the index entries whose `domain` is `security` as this skill's candidate set across every enabled layer; do not open the individual article files at this step. Open an article's full body only once it enters the Worklist below, so a review reads the index plus the handful of worklisted articles instead of every file under `*/knowledge/security/**`.
+Use READ's **Bounded retrieval for review skills** workflow with `-Domain security`. Consume every catalog page across enabled layers before applying this leaf's Relevance and Worklist; preserve each exact catalog path and open complete bodies only for exact paths selected by the Worklist. If the helper or prepared index is unavailable or invalid, use READ's explicit path-discovery and bounded native-read fallback.
 
 ## Relevance
 
@@ -39,16 +39,19 @@ Narrow the relevant files to the subset that applies to the changes under review
 
 - The changed AL object names and types — especially permission sets, codeunits handling authentication or authorization, objects touching `Isolated Storage`, `OAuth2` flows, web service endpoints, API pages, event publishers, and RecordRef helpers.
 - The changed procedures and triggers, weighted toward those that call `HttpClient`, validate or compose URLs, write to telemetry, read or write secrets, unwrap SecretText, manipulate record-level security, expose var Boolean guard parameters, or bypass the permission model (for example, `RecordRef.Open`, `Record.WritePermission`, direct table access from a non-owning app).
-- Tokens extracted from the diff that relate to security concerns (`IsolatedStorage`, `SetEncrypted`, `OAuth2`, `SecretText`, `Unwrap`, `NonDebuggable`, `Password`, `Token`, `HttpClient`, `Uri`, `AreURIsHaveSameHost`, `IsValidURIPattern`, `RecordRef`, `RecordId`, `TransferFields`, `Codeunit.Run`, `Access = Internal`, `internalsVisibleTo`, `Open`, `IntegrationEvent`, `SkipValidation`, `HasAccess`, `Permission`, `UserSecurityId`, `Commit`).
+- Tokens extracted from the diff that relate to security concerns (`IsolatedStorage`, `SetEncrypted`, `OAuth2`, `SecretText`, `Unwrap`, `NonDebuggable`, `Password`, `Token`, `HttpClient`, `Uri`, `AreURIsHaveSameHost`, `IsValidURIPattern`, `RecordRef`, `RecordId`, `TransferFields`, `Codeunit.Run`, `Access = Internal`, `internalsVisibleTo`, `Open`, `IntegrationEvent`, `SkipValidation`, `HasAccess`, `Permission`, `UserSecurityId`, `Commit`, `SetFilter`, `ServiceEnabled`, `PageType = API`, `QueryType = API`, `permissionset`, `Web Services`, `FilterGroup`, `OnOpenPage`, `SetRange`).
 
 A file enters the candidate worklist when its `keywords` intersect the extracted tokens or its topic (derived from the index entry's `path`, `title`, and `description`) matches a changed object type. Read an article's full file — its `## Best Practice` / `## Anti Pattern` bodies — only after it makes the worklist; candidate selection uses the index alone.
 
 Always worklist `internal-access-is-not-a-security-boundary.md` when changed comments or code rely on `Access = Internal` or `internalsVisibleTo` to protect a sensitive operation, or an internal `OnRun` codeunit performs privileged work without an independent authorization boundary. Do not flag `internal` used only to keep implementation details out of the supported API.
 
+Worklist `page-scope-filters-must-not-be-in-filtergroup-zero.md` when a page trigger (typically `OnOpenPage`) restricts `Rec` to a user-, role-, or context-specific subset with `SetRange`/`SetFilter` while the current filter group is 0. Do not flag a group 0 filter meant as a removable default, such as a default date range. Worklist `restore-the-filtergroup-after-setting-hidden-filters.md` when a non-zero `FilterGroup(N)` call is not followed by a restore before the record is filtered further or passed on, or when custom filters are set in group 1, 3, 4, 6, or 7.
+
 For secret values, select the most specific sink owner:
 
 - When a `Text`/`Code` credential is declared, passed, returned, or unwrapped without a visible HTTP URI/header/body sink, use `secrettext-for-credentials.md`.
 - When that value is interpolated into a URI, authorization header, or HTTP body and sent through `HttpClient`, use `secrettext-with-httpclient.md` as the primary finding. It supersedes the generic credential-type article at that location; keep the latter only as a supporting reference when useful.
+- When a page/query is registered in Web Services, declares `PageType = API`/`QueryType = API`, a codeunit is registered in Web Services, or `[ServiceEnabled]` is added to a page procedure, and no permission set in the app grants a matching `page "..." = X` / `query "..." = X` / `codeunit "..." = X` entry for that specific object — use `exposed-objects-must-be-in-a-permission-set.md`. The anti-pattern is the exposed object missing its own execute entry, even when the underlying table's `tabledata` permissions look complete; require repository-level permission-set context, since one file cannot prove an entry is absent elsewhere in the app.
 
 Once the candidate worklist is known, resolve layer-precedence conflicts per READ. Drop lower-precedence files whose normative guidance (`## Best Practice` or `## Anti Pattern`) directly contradicts a higher-precedence candidate, and record each dropped file in `suppressed` with `reason: "layer-precedence"`. Files that would have been candidates but are hidden because their layer is disabled in consumer configuration are recorded with `reason: "configuration"`. Files that never became candidates are NOT recorded in `suppressed`.
 
@@ -129,7 +132,7 @@ Output conforms to the DO output contract. Every finding this skill emits MUST s
 }
 ```
 
-The empty-corpus case — BCQuality's state until security knowledge files land — produces:
+When no applicable security knowledge is available, the report is:
 
 ```json
 {
