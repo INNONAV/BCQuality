@@ -1,0 +1,79 @@
+name: INNONAV upstream sync
+
+# INNONAV fork only (never upstream). Keeps this fork within days of
+# microsoft/BCQuality without anyone remembering to press "Sync fork".
+#
+# When upstream main has commits this fork's main lacks, the job opens ONE pull
+# request with head microsoft:main and base main. Nothing is pushed: the PR
+# follows upstream on its own, so later runs only confirm it is still open.
+#
+# Merge it with "Create a merge commit" - never squash or rebase, both break
+# the shared history and the next sync would replay upstream as conflicts.
+# Review the diff against custom/ first: custom articles win over upstream
+# ones, so a new upstream article can silently be displaced by an old custom one.
+#
+# Known limits:
+# - A PR opened with GITHUB_TOKEN does not trigger pull_request workflows, so the
+#   validation workflows run only after the merge, on push to main.
+# - The PR head is upstream's branch, so GitHub cannot resolve conflicts in the
+#   PR. On conflict: git fetch upstream; git switch -c sync/upstream-<date>
+#   origin/main; git merge upstream/main; resolve; push; open a PR from that
+#   branch and close this one.
+# - Needs Settings > Actions > General > "Allow GitHub Actions to create and
+#   approve pull requests" (repo and org).
+# - GitHub disables scheduled workflows after 60 days without repository
+#   activity; re-enable under Actions if that happens.
+
+on:
+  schedule:
+    - cron: '17 5 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: innonav-upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync-pr:
+    if: github.repository == 'INNONAV/BCQuality'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      UPSTREAM_OWNER: microsoft
+      UPSTREAM_REPO: BCQuality
+      BRANCH: main
+    steps:
+      - name: Open sync PR when the fork is behind upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          # ahead_by = upstream commits that this fork's main does not contain
+          missing=$(gh api "repos/$REPO/compare/$BRANCH...$UPSTREAM_OWNER:$UPSTREAM_REPO:$BRANCH" --jq '.ahead_by')
+          if [ "$missing" -eq 0 ]; then
+            echo "Up to date with $UPSTREAM_OWNER/$UPSTREAM_REPO."
+            exit 0
+          fi
+          open=$(gh api "repos/$REPO/pulls?state=open&base=$BRANCH&head=$UPSTREAM_OWNER:$BRANCH" --jq 'length')
+          if [ "$open" -gt 0 ]; then
+            echo "$missing upstream commit(s) missing; sync PR already open, it follows upstream."
+            exit 0
+          fi
+          body="Automatic sync: $missing commit(s) from $UPSTREAM_OWNER/$UPSTREAM_REPO $BRANCH are missing here.
+
+          - Merge with **Create a merge commit**, never squash or rebase.
+          - Check the diff against \`custom/\`: custom articles win over upstream ones.
+          - Validation workflows run after the merge (a PR opened by GITHUB_TOKEN does not trigger them).
+
+          Opened by \`.github/workflows/innonav-upstream-sync.yml\`."
+          url=$(gh api -X POST "repos/$REPO/pulls" \
+            -f title="Sync with $UPSTREAM_OWNER/$UPSTREAM_REPO ($(date -u +%F))" \
+            -f head="$UPSTREAM_OWNER:$BRANCH" -f base="$BRANCH" -f body="$body" \
+            --jq '.html_url')
+          echo "Opened $url"
+          echo "Sync PR: $url" >> "$GITHUB_STEP_SUMMARY"
